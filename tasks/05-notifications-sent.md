@@ -1,28 +1,17 @@
-# 05 — notifications_sent
+# 05 — notification_outbox
 
 ## რას ვაკეთებთ
 
-ვიმახსოვრებთ, რომელ მოწყობილობას რომელ მიწისძვრაზე გაეგზავნა შეტყობინება, რომ იგივე წყვილი მეორედ აღარ გავიდეს.
+მიწისძვრაზე შერჩეულ მოწყობილობას ვწერთ `notification_outbox`-ში. Expo-ს ყოველი ცდა `notification_attempts`-შია: `expo_ticket_id`, `expo_receipt_id`, სტატუსი და შეცდომა.
 
 ## როგორ
 
-პირველადი გასაღები `(event_id, device_id)` ბაზის დონეზე კრძალავს დუბლიკატს. `event_id` არის endpoint-ის `event.id`, ჩვეულებრივი `integer`, გარე გასაღების გარეშე.
+ერთი მიწისძვრა, ერთი მოწყობილობა და ერთი `notification_type` მეორედ აღარ იწერება.
 
-გაგზავნამდე ვწერთ ჩანაწერს და Expo-ს მხოლოდ მაშინ ვეძახით, თუ სტრიქონი ახლა ჩაიწერა:
+ახალი სტრიქონის სტატუსია `pending`, `attempt_count` ნულია. გაგზავნისას იზრდება `attempt_count` და ემატება `notification_attempts`. წარმატებაზე outbox ხდება `ok` და ივსება `processed_at`. შეცდომაზე რჩება `error`.
 
-```sql
-INSERT INTO notifications_sent (event_id, device_id, status)
-VALUES (:event_id, :device_id, 'pending')
-ON CONFLICT (event_id, device_id) DO NOTHING
-RETURNING event_id;
-```
-
-`RETURNING` ცარიელია — ეს წყვილი უკვე გაგზავნილია ან გაგზავნა უკვე დაწყებულია, მეორედ აღარ ვაგზავნით.
-
-`INSERT` მხოლოდ იმ მოწყობილობებზე ხდება, რომლებიც [06](06-recipients.md)-ის არჩევამ დააბრუნა. ჩაწერა თუ მოხერხდა, ვაგზავნით. წარმატებაზე ვინახავთ `expo_ticket_id`-ს და `status = 'ok'`. Expo-ს შეცდომაზე სტრიქონი რჩება `status = 'error'` და მიზეზით `error`-ში, რომ იგივე წყვილი თავიდან არ გაიგზავნოს.
-
-`expo_ticket_id` რამდენიმე წუთში Expo-ს receipt-ის შესამოწმებლად გვჭირდება. თუ receipt აბრუნებს `DeviceNotRegistered`, ამ მოწყობილობის `push_token` ვაცარიელებთ.
+`locked_at` ნიშნავს, რომ სტრიქონს ამჟამად ამუშავებს გამგზავნი (`processing`).
 
 ## მზადაა, როცა
 
-იგივე `(event_id, device_id)` მეორედ აღარ იგზავნება, და გაგზავნა იწყება მხოლოდ მაშინ, როცა `INSERT ... ON CONFLICT DO NOTHING` სტრიქონს რეალურად ქმნის.
+იგივე მიწისძვრა იმავე მოწყობილობას მეორედ აღარ ემატება, და ყოველი Expo-ს ცდა ცალკე ჩანაწერია.

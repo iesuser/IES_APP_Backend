@@ -17,7 +17,7 @@
 1. `alert_settings` აქვს და `enabled` ჭეშმარიტია. ჩანაწერის გარეშე შეტყობინება არ ეგზავნება.
 2. არჩეული მაგნიტუდა `min_magnitude`-ზე ნაკლები არ არის.
 3. ეპიცენტრი ხვდება `area`-ში. `custom` და `circle` ერთნაირად მოწმდება, ორივე უკვე `MultiPolygon`-ია.
-4. `push_token` შევსებულია, და `(event.id, device_id)` ჯერ არ დევს `notifications_sent`-ში.
+4. მოწყობილობა აქტიურია, `push_token` შევსებულია, და ეს მიწისძვრა ამ მოწყობილობაზე ჯერ არ დევს `notification_outbox`-ში.
 
 არჩევა PostGIS-ში ხდება, აპის კოდში პოლიგონების ჩამოთვლით არა. გრძედი პირველია, განედი მეორე:
 
@@ -32,15 +32,16 @@ WHERE a.enabled
         a.area,
         ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)
       )
+  AND d.is_active
   AND NOT EXISTS (
         SELECT 1
-        FROM notifications_sent AS n
-        WHERE n.event_id = :event_id
+        FROM notification_outbox AS n
+        WHERE n.earthquake_id = :earthquake_id
           AND n.device_id = d.device_id
       );
 ```
 
-`alert_settings_area_idx` ამ გადაკვეთას აჩქარებს. დაბრუნებული მოწყობილობები გადაეცემა გაგზავნას ([05](05-notifications-sent.md)): ჯერ `INSERT ... ON CONFLICT DO NOTHING`, და Expo მხოლოდ მაშინ, თუ სტრიქონი ახლა ჩაიწერა.
+`alert_settings_area_idx` ამ გადაკვეთას აჩქარებს. დაბრუნებული მოწყობილობები იწერება `notification_outbox`-ში ([05](05-notifications-sent.md)). Expo მხოლოდ ახალ სტრიქონზე იძახება, და პასუხი `notification_attempts`-ში რჩება.
 
 ## მზადაა, როცა
 
