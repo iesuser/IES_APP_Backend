@@ -82,7 +82,7 @@ Responses: `201` ახალი token, `200` არსებული token-ი
 
 გამორთვისას ბოლო მდებარეობა არ იშლება.
 
-### `POST` / `PUT /devices/{device_id}/location/`
+### `PUT /devices/{device_id}/location/`
 
 ინახავს ან ანაცვლებს ბოლო location fix-ს:
 

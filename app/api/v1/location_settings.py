@@ -133,8 +133,8 @@ class LocationSettingsApi(Resource):
     def patch(self, device_id):
         """Enable or disable sharing without deleting the last location.
 
-        Enabling sharing does not create a location; submit one with POST or
-        PUT. Disabling sharing preserves the last saved location.
+        Enabling sharing does not create a location; submit one with PUT.
+        Disabling sharing preserves the last saved location.
         """
 
         try:
@@ -183,23 +183,3 @@ class LocationSettingsApi(Resource):
 
         return _save_device_location(device_id)
 
-    @location_settings_ns.expect(location_parser)
-    @location_settings_ns.marshal_with(location_response_model)
-    @location_settings_ns.response(
-        400, "Invalid location data", location_settings_error_model
-    )
-    @location_settings_ns.response(
-        403, "Location sharing is disabled", location_settings_error_model
-    )
-    @location_settings_ns.response(
-        404, "Device not found", location_settings_error_model
-    )
-    def post(self, device_id):
-        """Submit a location fix for an already registered device.
-
-        The device must already be registered and location sharing enabled.
-        This operation never creates a device. The location is stored in the
-        device's ``location_settings`` row, replacing its previous fix.
-        """
-
-        return _save_device_location(device_id)

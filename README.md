@@ -28,7 +28,6 @@ Swagger: `http://127.0.0.1:5000/docs/`
 | DELETE | `/api/v1/devices/<device_id>/fcm-tokens/<token_id>` | disable notifications and remove the FCM token |
 | GET | `/api/v1/devices/<device_id>/location/` | sharing state and last known location |
 | PATCH | `/api/v1/devices/<device_id>/location/` | enable or disable location sharing |
-| POST | `/api/v1/devices/<device_id>/location/` | submit the initial or latest location fix |
 | PUT | `/api/v1/devices/<device_id>/location/` | replace an existing device's latest location |
 | GET | `/api/v1/alert-settings/` | stored alert areas (`?limit=`) |
 | GET | `/api/v1/devices/<id>/alert-settings` | one device's polygon |
@@ -51,9 +50,9 @@ operate on an existing device; they never register one. Location sharing starts
 disabled. Enable it with `PATCH /api/v1/devices/<device_id>/location/` and
 `{"location_sharing_enabled": true}` before submitting a location.
 
-Send location fixes with `POST` or `PUT` to
-`/api/v1/devices/<device_id>/location/`. Both store or replace the device's single
-latest location in `location_settings`.
+Send location fixes with `PUT` to
+`/api/v1/devices/<device_id>/location/`. It replaces the device's single latest
+location in `location_settings`.
 
 ```json
 {
