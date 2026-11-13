@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from flask import request
+from flask import current_app, request
 from flask_restx import Resource, marshal
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -14,6 +14,7 @@ from app.api.v1.nsmodels.earthquakes import (
 )
 from app.extensions import db
 from app.models import Earthquake
+from app.utils.notifications import schedule_earthquake_notifications
 
 LIST_DEFAULT_LIMIT = 100
 LIST_MAX_LIMIT = 200
@@ -246,6 +247,8 @@ class EarthquakesApi(Resource):
             db.session.rollback()
             return {"error": "server_error", "message": "Earthquake could not be stored."}, 500
         db.session.refresh(earthquake)
+        # Match alert polygons and notify in the background so this response stays fast.
+        schedule_earthquake_notifications(current_app._get_current_object(), earthquake.id)
         return marshal(earthquake.to_dict(), earthquake_model), 201
 
 

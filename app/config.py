@@ -46,6 +46,9 @@ class Config:
 
     RESTX_MASK_SWAGGER = False
 
+    # Absolute path to the Firebase service account JSON used for FCM HTTP v1.
+    FIREBASE_CREDENTIALS_PATH = os.getenv("FIREBASE_CREDENTIALS_PATH", "")
+
 
 class DevelopmentConfig(Config):
     DEBUG = True
