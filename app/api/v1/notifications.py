@@ -3,8 +3,6 @@ from uuid import UUID
 from flask import request
 from flask_restx import Resource, marshal
 from sqlalchemy import case, func
-from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.v1.nsmodels.notifications import (
     attempt_list_model,
@@ -18,11 +16,11 @@ from app.api.v1.nsmodels.notifications import (
 )
 from app.extensions import db
 from app.models import Earthquake, NotificationAttempt, NotificationOutbox
+from app.utils.notifications import dispatch_earthquake_notifications
 
 LIST_DEFAULT_LIMIT = 100
 LIST_MAX_LIMIT = 200
 STATUSES = ("pending", "processing", "ok", "error")
-ALERT_TYPE = "alert"
 
 
 def _limit(value):
@@ -72,39 +70,6 @@ def _integer(value, name):
     if isinstance(value, bool) or not isinstance(value, int):
         return None, _error(f"{name} must be an integer.")
     return value, None
-
-
-
-def _matching_device_ids(earthquake):
-    rows = db.session.execute(
-        db.text(
-            """
-            SELECT d.device_id
-            FROM alert_settings AS a
-            JOIN devices AS d ON d.device_id = a.device_id
-            JOIN fcm_tokens AS ft ON ft.device_id = d.device_id
-            WHERE a.enabled
-              AND d.is_active
-              AND a.min_magnitude <= :magnitude
-              AND ft.notifications_enabled
-              AND ST_Intersects(
-                    a.area,
-                    ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)
-                  )
-            """
-        ),
-        {
-            "magnitude": float(earthquake.magnitude_value),
-            "longitude": earthquake.longitude,
-            "latitude": earthquake.latitude,
-        },
-    ).scalars()
-    device_ids = []
-    for device_id in rows:
-        if not isinstance(device_id, UUID):
-            device_id = UUID(str(device_id))
-        device_ids.append(device_id)
-    return device_ids
 
 
 @notifications_ns.route("/notifications/stats")
@@ -182,7 +147,7 @@ class NotificationsApi(Resource):
     @notifications_ns.response(200, "Recorded", notification_dispatch_model)
     @notifications_ns.response(400, "Validation Error", error_model)
     def post(self):
-        """Queue recipients for an earthquake that is already stored."""
+        """Match alert polygons for a stored earthquake and notify (print-only for now)."""
         payload = request.get_json(silent=True)
         event_id, error = _integer((payload or {}).get("event_id") if isinstance(payload, dict) else None, "event_id")
         if error:
@@ -192,29 +157,10 @@ class NotificationsApi(Resource):
         earthquake = Earthquake.query.filter_by(ies_event_id=event_id).first()
         if earthquake is None:
             return {"error": "not_found", "message": "Earthquake not found."}, 404
-        try:
-            device_ids = _matching_device_ids(earthquake)
-            inserted = 0
-            for device_id in device_ids:
-                created = db.session.execute(
-                    insert(NotificationOutbox)
-                    .values(
-                        earthquake_id=earthquake.id,
-                        device_id=device_id,
-                        notification_type=ALERT_TYPE,
-                        status="pending",
-                    )
-                    .on_conflict_do_nothing(constraint="uq_notification_outbox_recipient")
-                    .returning(NotificationOutbox.id)
-                ).scalar()
-                if created is not None:
-                    inserted += 1
-            db.session.commit()
-        except SQLAlchemyError:
-            db.session.rollback()
-            return {"error": "server_error", "message": "Notification could not be recorded."}, 500
+        matched, notified = dispatch_earthquake_notifications(earthquake)
+        # ``inserted`` kept for the existing response shape; equals notified while send is print-only.
         return marshal(
-            {"event_id": event_id, "matched": len(device_ids), "inserted": inserted},
+            {"event_id": event_id, "matched": matched, "inserted": notified},
             notification_dispatch_model,
         ), 200
 

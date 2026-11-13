@@ -6,3 +6,4 @@ SQLAlchemy==2.0.51
 GeoAlchemy2>=0.16
 psycopg[binary]>=3.2
 python-dotenv==1.2.2
+firebase-admin>=6.5
