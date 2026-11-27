@@ -35,6 +35,57 @@ def enqueue_recipients(earthquake_id, device_ids):
     return inserted
 
 
+def ensure_recipients(earthquake_id, device_ids, *, reset_existing=False):
+    """Return outbox rows for every device, creating missing ones.
+
+    When ``reset_existing`` is true, existing rows are reset to ``pending`` so
+    they can be sent again. Returns
+    ``[{"outbox_id", "device_id", "created"}, ...]`` in device order.
+    """
+    rows = []
+    for device_id in device_ids:
+        existing = NotificationOutbox.query.filter_by(
+            earthquake_id=earthquake_id,
+            device_id=device_id,
+            notification_type=ALERT_TYPE,
+        ).first()
+        if existing is None:
+            created = db.session.execute(
+                insert(NotificationOutbox)
+                .values(
+                    earthquake_id=earthquake_id,
+                    device_id=device_id,
+                    notification_type=ALERT_TYPE,
+                    status="pending",
+                )
+                .returning(NotificationOutbox.id, NotificationOutbox.device_id)
+            ).first()
+            rows.append(
+                {
+                    "outbox_id": created.id,
+                    "device_id": created.device_id,
+                    "created": True,
+                }
+            )
+            continue
+
+        if reset_existing:
+            existing.status = "pending"
+            existing.locked_at = None
+            existing.processed_at = None
+
+        rows.append(
+            {
+                "outbox_id": existing.id,
+                "device_id": existing.device_id,
+                "created": False,
+            }
+        )
+
+    db.session.commit()
+    return rows
+
+
 def mark_processing(outbox_ids):
     """Mark outbox rows as processing before an FCM send."""
     if not outbox_ids:
