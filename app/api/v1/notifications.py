@@ -147,7 +147,12 @@ class NotificationsApi(Resource):
     @notifications_ns.response(200, "Recorded", notification_dispatch_model)
     @notifications_ns.response(400, "Validation Error", error_model)
     def post(self):
-        """Match alert polygons, queue new outbox rows, and send FCM for new recipients."""
+        """Match alert polygons and send FCM to every current match.
+
+        Re-sends even if the device already has an outbox row / prior attempt
+        for this earthquake. ``inserted`` is how many outbox rows were prepared
+        for this send (new + reused).
+        """
         payload = request.get_json(silent=True)
         event_id, error = _integer((payload or {}).get("event_id") if isinstance(payload, dict) else None, "event_id")
         if error:
@@ -157,7 +162,10 @@ class NotificationsApi(Resource):
         earthquake = Earthquake.query.filter_by(ies_event_id=event_id).first()
         if earthquake is None:
             return {"error": "not_found", "message": "Earthquake not found."}, 404
-        matched, inserted, _notified = dispatch_earthquake_notifications(earthquake)
+        matched, inserted, _notified = dispatch_earthquake_notifications(
+            earthquake,
+            force_resend=True,
+        )
         return marshal(
             {"event_id": event_id, "matched": matched, "inserted": inserted},
             notification_dispatch_model,

@@ -1,22 +1,30 @@
 """Match an earthquake to alert areas and notify recipients."""
 
 import logging
-import threading
 
 from app.extensions import db
 from app.models import Earthquake
-from app.utils.notifications.outbox import enqueue_recipients, mark_processing
+from app.utils.notifications.outbox import (
+    enqueue_recipients,
+    ensure_recipients,
+    mark_processing,
+)
 from app.utils.notifications.recipients import matching_recipients
 from app.utils.notifications.send import send_notifications
 
 logger = logging.getLogger("app.notifications")
 
 
-def dispatch_earthquake_notifications(earthquake):
-    """Match devices, write outbox rows, and send new FCM pushes in bulk.
+def dispatch_earthquake_notifications(earthquake, *, force_resend=False):
+    """Match devices, update outbox rows, and send FCM pushes in bulk.
 
-    Already-queued (earthquake, device) pairs are not inserted again and are
-    not re-sent. Returns ``(matched, inserted, notified)``.
+    By default only newly inserted outbox rows are sent (idempotent).
+
+    With ``force_resend=True``, every current match is sent again even if that
+    device already has an outbox row / prior attempt for this earthquake.
+
+    Returns ``(matched, inserted, notified)`` where ``inserted`` is the number
+    of outbox rows prepared for this send.
     """
     recipients = matching_recipients(
         earthquake.latitude,
@@ -28,13 +36,26 @@ def dispatch_earthquake_notifications(earthquake):
         return 0, 0, 0
 
     by_device = {recipient["device_id"]: recipient for recipient in recipients}
-    inserted_rows = enqueue_recipients(earthquake.id, list(by_device.keys()))
-    inserted = len(inserted_rows)
-    if not inserted_rows:
+    device_ids = list(by_device.keys())
+
+    if force_resend:
+        outbox_rows = ensure_recipients(
+            earthquake.id,
+            device_ids,
+            reset_existing=True,
+        )
+    else:
+        outbox_rows = [
+            {**row, "created": True}
+            for row in enqueue_recipients(earthquake.id, device_ids)
+        ]
+
+    inserted = len(outbox_rows)
+    if not outbox_rows:
         return matched, 0, 0
 
     to_send = []
-    for row in inserted_rows:
+    for row in outbox_rows:
         recipient = by_device[row["device_id"]]
         to_send.append(
             {
@@ -45,7 +66,7 @@ def dispatch_earthquake_notifications(earthquake):
             }
         )
 
-    mark_processing([row["outbox_id"] for row in inserted_rows])
+    mark_processing([row["outbox_id"] for row in outbox_rows])
     notified = send_notifications(
         to_send,
         earthquake.ies_event_id,
@@ -58,38 +79,10 @@ def dispatch_earthquake_notifications(earthquake):
     return matched, inserted, notified
 
 
-def dispatch_earthquake_notifications_by_id(earthquake_id):
+def dispatch_earthquake_notifications_by_id(earthquake_id, *, force_resend=False):
     """Load an earthquake by primary key and dispatch notifications."""
     earthquake = db.session.get(Earthquake, earthquake_id)
     if earthquake is None:
         logger.warning("notification dispatch skipped: earthquake id=%s not found", earthquake_id)
         return 0, 0, 0
-    return dispatch_earthquake_notifications(earthquake)
-
-
-def schedule_earthquake_notifications(app, earthquake_id):
-    """Run dispatch in a background thread so the HTTP response is not delayed."""
-
-    def _run():
-        with app.app_context():
-            try:
-                matched, inserted, notified = dispatch_earthquake_notifications_by_id(earthquake_id)
-                logger.info(
-                    "background notification dispatch finished earthquake_id=%s "
-                    "matched=%s inserted=%s notified=%s",
-                    earthquake_id,
-                    matched,
-                    inserted,
-                    notified,
-                )
-            except Exception:
-                logger.exception(
-                    "background notification dispatch failed earthquake_id=%s",
-                    earthquake_id,
-                )
-
-    threading.Thread(
-        target=_run,
-        name=f"notify-earthquake-{earthquake_id}",
-        daemon=True,
-    ).start()
+    return dispatch_earthquake_notifications(earthquake, force_resend=force_resend)
